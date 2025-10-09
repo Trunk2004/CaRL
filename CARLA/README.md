@@ -63,6 +63,7 @@ cd /path/to/CARLA/root
 ```
 CaRL does not use sensor data, so if you do not want to use the spectator camera of CARLA, you can start CARLA in CPU mode to save compute using the `-nullrhi` option.
 Additionally, you might want to set the `-carla-rpc-port=2000`, `-nosound` `-carla-streaming-port=6000` options in particular if you run multiple servers or non-default ports.
+By default, CARLA allocates a number of threads that is proportional to the number of cores on the CPU. For high-end server CPUs this can be way too many threads. Fortunately CARLA has features to control this albeit undocumented at the moment.  For training, we use these additional options: `-RPCThreads=2` `-StreamingThreads=2` `-SecondaryThreads=2` `-nothreading` that limit the number of parallel threads.
 
 ### Evaluation Debugging
 To evaluate a model, run [leaderboard_evaluator.py](original_leaderboard/leaderboard/leaderboard/leaderboard_evaluator.py) as the main Python file.
@@ -82,6 +83,7 @@ export RECORD=0 # Record infraction clips
 export SAVE_PNG=0 # Save higher quality individual debug frames in PNG. Otherwise video is saved. 
 export UPSCALE_FACTOR=1  # Render higher resolution debug for paper
 export SCENARIO_RUNNER_ROOT=/path/to/original_leaderboard/scenario_runner # Set to the scenario runner root. Important to set otherwise scenarios don't work.
+export CUBLAS_WORKSPACE_CONFIG=:4096:8  # Needed for deterministic model forward passes. Increases GPU memory consumption.
 
 export HIGH_FREQ_INFERENCE=0 # Can run model at 20 Hz, didn't see any benefit
 export NO_CARS=0 # Removes all other cars for debugging, do not use during evaluation.
@@ -125,20 +127,36 @@ python ${WORK_DIR}/tools/result_parser.py --results /path/to/folder/containing_j
 ## Training
 
 The main training algorithm is in [dd_ppo.py](team_code/dd_ppo.py). It contains a custom [DD_PPO](https://arxiv.org/abs/1911.00357) implementation that is based on the PPO code in [CleanRL](https://github.com/vwxyzjn/cleanrl/tree/master).
-We are using an RL-optimized leaderboard in this project but the unmodified CARLA 0.9.15 server.
-The CARLA server has various problems for RL training, such as that it occasionally crashes due to bugs.
-For that reason we use the [train_parallel.py](team_code/train_parallel.py) script to start the training, which starts up the CARLA servers, leaderboard clients, and training code. The script monitors the training for CARLA crashes and restarts everything if something crashes. Crashes happen typically a couple of times per run on small scale (10M samples, 8 concurrent servers), but constantly (~every 15 min) at large (300 M samples, 128 concurrent servers) runs.
-Additionally, for larger runs we also observed CARLA race conditions on shared cluster file systems. 
-The most consistent way for us to get the 300M training run to converge was to use a VM/independent node with 128 CPU cores, 8 GPUs and 1TB of RAM (training uses quite a lot of RAM to avoid loading routes from disk during training).
-A more principled solution would be to fork the simulator and fix the CARLA bugs. We might do this in the future and update here.
+We are using an RL-optimized leaderboard in this project.
+The official CARLA 0.9.15 server has various problems for RL training, such as that it occasionally crashes due to bugs.
+For that reason we use the [train_parallel.py](team_code/train_parallel.py) script to start the training, which starts up the CARLA servers, leaderboard clients, and training code. The script monitors the training for CARLA crashes and restarts everything if something crashes. This allows for training with the pre-build CARLA version but slows down training due to the restarts.
 
-We provide 4 training configs to train different RL models.
+### Custom CARLA
+We have created a [CARLA fork](https://github.com/Kait0/carla/tree/bernhard-ue4fixes) to solve these problems, where we fixed two endless loops a race condition and removed a significant amount of CPU overhead.
+With our fork we observe no more CARLA crashes and are able to run 2x more parallel servers leading to significantly faster training at scale. The downside is that you need to compile CARLA from scratch witch takes quite a while.
+We recommend the custom fork for users that plan to do large scale training runs (e.g. 8 GPUs+).
+To build CARLA follow the [official instructions](https://carla.readthedocs.io/en/latest/build_linux/).
+At the end compile a CARLA distribution with `make package  ARGS="--no-zip --packages=Carla,AdditionalMaps"` copy the additional maps into the CARLA folder and install client: 
+```Shell
+conda activate carl
+pip uninstall carla
+pip install /path/to/custom/CARLA/PythonAPI/carla/dist/carla-0.9.15-cp37-cp37m-manylinux_2_27_x86_64.whl
+```
+
+Starting > 100 CARLA servers on shared file systems can sometimes hang up servers.
+Starting the servers with sleeps inbetween can work around this. The train_parallel.py script supports this with the `--ml_cloud 1` option.
+
+### Training scripts
+
+We provide 5 training configs to train different RL models.
 The training code is highly configurable. You can find the right hyperparameters for each model in these scripts.
 
 * [train_roach.sh](team_code/train_roach.sh) Reproduces the Roach approach for the CARLA leaderboard 2.0.
 * [train_carl_tiny_cpp.sh](team_code/train_carl_tiny_cpp.sh) Reproduces the 10M samples ablation in Table 4. It can be a good start to play around with the repo since it only needs 1 GPU and trains within a day. The script uses the C++ training code described later.
-* [train_carl_py.sh](team_code/train_carl_py.sh) Trains the CaRL method (300M samples run) using the Python training code.
-* [train_carl_cpp.sh](team_code/train_carl_cpp.sh) Trains the CaRL method (300M samples run) using the C++ training code.
+* [train_carl_py.sh](team_code/train_carl_py.sh) Trains the CaRL v1.0 method (300M samples run) using the Python training code.
+* [train_carl_cpp.sh](team_code/train_carl_cpp.sh) Trains the CaRL v1.0 method (300M samples run) using the C++ training code.
+* [train_carl_v1_1_py.sh](team_code/train_carl_v1_1_py.sh) Trains the CaRL v1.1 using the Python training code with 300M samples. Compared to the 1.0 paper version this one uses our custom CARLA server which enabled 2x more parallel servers (256) as well as various smaller bugfixes reducing noise in the training routes. The model achieves 73 DS (+9) on longest6 v2.
+
 
 Every parameter has a one-sentence description about what it does in the [argument parser](team_code/dd_ppo.py).
 But in general this is a research repo, so we do not have extensive documentation. I recommend using Ctrl+Shift+f (or your editor's equivalent) to find the parameter in the code and just read the code to learn what it does.

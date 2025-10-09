@@ -51,6 +51,7 @@ export RESUME=1
 export SEED={seed}
 export CHECKPOINT_ENDPOINT={results_save_dir}/{route}.json
 export DEBUG_ENV_AGENT=0
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export CPP={use_cpp}
 export CPP_PORT=`comm -23 <(seq {cpp_port_start} {cpp_port_start+49} | sort) <(ss -Htan | awk '{{print $4}}' | cut -d':' -f2 | sort -u) | shuf | head -n 1`
 echo 'C++ Port:' $CPP_PORT
