@@ -20,6 +20,8 @@ class CARLAEnv(gym.Env):
 
   def __init__(self, port, config, render_mode='rgb_array'):  # pylint: disable=locally-disabled, unused-argument
 
+    self.num_recv = 0
+
     self.observation_space = spaces.Dict({
         'bev_semantics':
             spaces.Box(0,
@@ -61,6 +63,7 @@ class CARLAEnv(gym.Env):
       self.initialized = True
 
     data = self.socket.recv_multipart(copy=False)
+    self.num_recv += 1
     observation = {
         'bev_semantics':
             np.frombuffer(data[0],
@@ -73,13 +76,18 @@ class CARLAEnv(gym.Env):
     }
 
     info = {'n_steps': np.frombuffer(data[6], dtype=np.int32), 'suggest': np.frombuffer(data[7], dtype=np.int32)}
+    num_sent = np.frombuffer(data[8], dtype=np.uint64).item()
+
+    if self.num_recv != num_sent:
+      raise ValueError(f"Communication breakdown, Leaderboard send more frames than client consumed."
+                       f"num_recv: {self.num_recv}, num_sent: {num_sent}")
 
     return observation, info
 
   def step(self, action):
     self.socket.send(action.tobytes(), copy=False)
-
     data = self.socket.recv_multipart(copy=False)
+    self.num_recv += 1
 
     observation = {
         'bev_semantics':
@@ -100,6 +108,12 @@ class CARLAEnv(gym.Env):
         'n_steps': np.frombuffer(data[6], dtype=np.int32).item(),
         'suggest': np.frombuffer(data[7], dtype=np.int32).item()
     }
+
+    num_sent = np.frombuffer(data[8], dtype=np.uint64).item()
+
+    if self.num_recv != num_sent:
+      raise ValueError(f"Communication breakdown, Leaderboard send more frames than client consumed."
+                       f"num_recv: {self.num_recv}, num_sent: {num_sent}")
 
     return observation, reward, termination, truncation, info
 

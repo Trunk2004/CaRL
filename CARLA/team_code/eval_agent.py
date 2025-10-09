@@ -37,6 +37,13 @@ from reward.simple_reward import SimpleReward
 
 jsonpickle_numpy.register_handlers()
 
+# Make network deterministic.
+torch.manual_seed(0)
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True)
+torch.backends.cudnn.deterministic = True
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 
 # Leaderboard function that selects the class used as agent.
 def get_entry_point():

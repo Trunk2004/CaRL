@@ -1113,6 +1113,11 @@ def main():
 
     clipfracs = []
 
+    # Free all data accumulated from data collection.
+    gc.collect()
+    with torch.no_grad():
+      torch.cuda.empty_cache()
+
     t3.toc(msg=f'Rank:{rank}, Data pre-processing.')
     t4.tic()
     for latest_epoch in range(args.update_epochs):

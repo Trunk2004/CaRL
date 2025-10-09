@@ -15,6 +15,7 @@ import operator
 import py_trees
 
 import carla
+from greenlet import greenlet
 
 from srunner.scenariomanager.scenarioatomics.atomic_trigger_conditions import (WaitForBlackboardVariable,
                                                                                InTimeToArrivalToLocation)
@@ -64,7 +65,8 @@ class BasicScenario(object):
         self._initialize_actors(config)
         # 3 ms
         if CarlaDataProvider.is_runtime_init_mode():
-            world.wait_for_tick()
+            gr = greenlet.getcurrent()
+            gr.parent.switch()
         elif CarlaDataProvider.is_sync_mode():
             world.tick()
         else:

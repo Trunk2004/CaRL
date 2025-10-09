@@ -101,7 +101,10 @@ class LeaderboardEvaluator(object):
 
         # Setup the simulation
         self.client, self.client_timeout, self.traffic_manager = self._setup_simulation(args)
-
+        print("Client version:", self.client.get_client_version())
+        # If i work with a debug compilation of CARLA and load the world too fast the client causes
+        #  a segfault here. Hacked in a sleep 3 which works around the issue.
+        time.sleep(3)
         # Load Town 01 to decrease RAM usage (uses less than default Town10HD) before we load the routes into the RAM.
         world = self.client.load_world('Town01', reset_settings=False)  # 1.96 seconds
 
@@ -187,6 +190,7 @@ class LeaderboardEvaluator(object):
 
         if self.route_scenario:
             self.route_scenario.remove_all_actors()
+            del self.route_scenario
             self.route_scenario = None
             if self.statistics_manager:
                 self.statistics_manager.remove_scenario()
@@ -195,12 +199,7 @@ class LeaderboardEvaluator(object):
             self._client_timed_out = not self.manager.get_running_status()
             self.manager.cleanup()
 
-        # Make sure no sensors are left streaming
         self.world.tick()
-        alive_sensors = self.world.get_actors().filter('*sensor*')
-        for sensor in alive_sensors:
-            sensor.stop()
-            sensor.destroy()
 
     def _setup_simulation(self, args):
         """
@@ -226,25 +225,6 @@ class LeaderboardEvaluator(object):
         traffic_manager.set_hybrid_physics_mode(True)
 
         return client, client_timeout, traffic_manager
-
-    def _reset_world_settings(self):
-        """
-        Changes the modified world settings back to asynchronous
-        """
-        # Has simulation failed?
-        if self.world and self.manager and not self._client_timed_out:
-            # Reset to asynchronous mode
-            self.world.tick()
-            settings = self.world.get_settings()
-            settings.synchronous_mode = False
-            settings.fixed_delta_seconds = None
-            settings.deterministic_ragdolls = False
-            settings.spectator_as_ego = True
-            self.world.apply_settings(settings)
-
-            # Make the TM back to async
-            self.traffic_manager.set_synchronous_mode(False)
-            self.traffic_manager.set_hybrid_physics_mode(False)
 
     def _load_and_wait_for_world(self, args, town):
         """
@@ -363,7 +343,7 @@ class LeaderboardEvaluator(object):
 
                 self.agent_instance = agent_class_obj(args.host, args.port, args.debug)
                 self.agent_instance.set_global_plan(self.route_scenario.route)
-                self.agent_instance.setup(args.agent_config, args.gym_port)
+                self.agent_instance.setup(args.agent_config, args.gym_port, config)
 
                 # Check and store the sensors
                 if not self.sensors:
@@ -386,7 +366,7 @@ class LeaderboardEvaluator(object):
                 self._agent_watchdog.start()
 
                 self.agent_instance.set_global_plan(self.route_scenario.route)
-                self.agent_instance.setup(args.agent_config, args.gym_port)
+                self.agent_instance.setup(args.agent_config, args.gym_port, config)
 
                 self._agent_watchdog.stop()
                 self._agent_watchdog = None
@@ -434,18 +414,20 @@ class LeaderboardEvaluator(object):
         except AgentError:
             # The agent has failed -> stop the route
             print("\n\033[91mStopping the route, the agent has crashed:")
-            print(f"\n{traceback.format_exc()}\033[0m")
+            print(f"\n{traceback.format_exc()}\033[0m", flush=True)
 
             entry_status, crash_message = FAILURE_MESSAGES["Agent_runtime"]
         except KeyError:
             print("\n\033[91mError in Scenario Runner:")
-            print(f"\n{traceback.format_exc()}\033[0m")
-
+            print(f"\n{traceback.format_exc()}\033[0m", flush=True)
+            entry_status, crash_message = FAILURE_MESSAGES["Agent_runtime"]
+        except RuntimeError:
+            print("\n\033[91mError in Scenario Runner:")
+            print(f"\n{traceback.format_exc()}\033[0m", flush=True)
             entry_status, crash_message = FAILURE_MESSAGES["Agent_runtime"]
         except Exception:
             print("\n\033[91mError during the simulation:")
-            print(f"\n{traceback.format_exc()}\033[0m")
-
+            print(f"\n{traceback.format_exc()}\033[0m", flush=True)
             entry_status, crash_message = FAILURE_MESSAGES["Simulation"]
 
         # Stop the scenario
@@ -522,14 +504,7 @@ class LeaderboardEvaluator(object):
         if self._ros1_server is not None:
             self._ros1_server.shutdown()
 
-        # Go back to asynchronous mode
-        self._reset_world_settings()
-
-        if not crashed:
-            # Save global statistics
-            #print("\033[1m> Registering the global statistics\033[0m")
-            self.statistics_manager.compute_global_statistics()
-            self.statistics_manager.validate_and_write_statistics(self.sensors_initialized, crashed)
+        print(f'Error: Leaderboard with port: {args.port} ran out of routes to train with', file=sys.stderr, flush=True)
 
         return crashed
 

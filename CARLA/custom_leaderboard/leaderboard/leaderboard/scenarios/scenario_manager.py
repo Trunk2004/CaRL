@@ -18,6 +18,7 @@ import os
 
 import py_trees
 import carla
+from greenlet import greenlet
 
 from agents.navigation.local_planner import RoadOption
 
@@ -56,6 +57,8 @@ class ScenarioManager(object):
         self.scenario_tree = None
         self.ego_vehicles = None
         self.other_actors = None
+        self._watchdog = None
+        self._scenario_greenlet = None
 
         self._debug_mode = debug_mode
         self._agent_wrapper = None
@@ -126,13 +129,15 @@ class ScenarioManager(object):
 
         self._agent_wrapper.setup_sensors(self.ego_vehicles[0])
 
-    def build_scenarios_no_loop(self, debug):
+    def build_scenarios_loop(self, debug):
         """
         Keep periodically trying to start the scenarios that are close to the ego vehicle
         Additionally, do the same for the spawned vehicles
         """
-        self.scenario.build_scenarios(self.ego_vehicles[0], debug=debug)
-        self.scenario.spawn_parked_vehicles(self.ego_vehicles[0])
+        while self._running:
+            self.scenario.build_scenarios(self.ego_vehicles[0], debug=debug)
+            self.scenario.spawn_parked_vehicles(self.ego_vehicles[0])
+            self.gr_main.switch()
 
     def run_scenario(self):
         """
@@ -142,6 +147,10 @@ class ScenarioManager(object):
         self.start_game_time = GameTime.get_time()
 
         self._running = True
+
+        # stackful coroutine for build_scenarios
+        self.gr_main = greenlet.getcurrent()
+        self._scenario_greenlet = greenlet(self.build_scenarios_loop)
 
         while self._running:
             self._tick_scenario()
@@ -153,7 +162,7 @@ class ScenarioManager(object):
         self._watchdog = Watchdog(self._timeout)
         self._watchdog.start()
 
-        self.build_scenarios_no_loop((self._debug_mode > 0, )) # 0.15 ms
+        self._scenario_greenlet.switch(self._debug_mode > 0)
 
         if self._running and self.get_running_status():
             CarlaDataProvider.get_world().tick() # 3.5ms
@@ -257,11 +266,24 @@ class ScenarioManager(object):
         """
         This function triggers a proper termination of a scenario
         """
-        if self._watchdog:
+        if self._watchdog is not None:
             self._watchdog.stop()
             self._watchdog = None
 
         self.compute_duration_time()
+
+        # Set running to false. The coroutine will now exit at the next iteration.
+        self._running = False
+        # The coroutine might be busy setting up a scenario. To ensure a clean exit we will let it finish setting up
+        # by providing the needed CARLA ticks.
+        if self._scenario_greenlet is not None:
+            self._scenario_greenlet.switch(self._debug_mode > 0)
+
+            while not self._scenario_greenlet.dead:
+                CarlaDataProvider.get_world().tick()
+                self._scenario_greenlet.switch(self._debug_mode > 0)
+
+            self._scenario_greenlet = None
 
         if self.get_running_status():
             if self.scenario is not None:
@@ -273,8 +295,11 @@ class ScenarioManager(object):
 
             self.analyze_scenario()
 
-        # Make sure the scenario thread finishes to avoid blocks
-        self._running = False
+        del self.scenario
+        del self.scenario_tree
+
+        self.scenario = None
+        self.scenario_tree = None
 
     def compute_duration_time(self):
         """

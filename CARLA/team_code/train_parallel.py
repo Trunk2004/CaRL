@@ -161,6 +161,22 @@ if __name__ == '__main__':
                         default=10,
                         help='How often to repeat training routes. needs to be high enough so they do not run out, '
                         'but low enough to save RAM.')
+    parser.add_argument('--debug',
+                        type=lambda x: bool(strtobool(x)),
+                        default=False,
+                        nargs='?',
+                        const=True,
+                        help='exits after each crash when debugging.')
+    parser.add_argument('--carla_singularity',
+                        type=lambda x: bool(strtobool(x)),
+                        default=False,
+                        nargs='?',
+                        const=True,
+                        help='whether to run CARLA from a singularity path')
+    parser.add_argument('--carla_singularity_path',
+                        type=str,
+                        default='/mnt/lustre/work/geiger/bjaeger25/ad_planning/2_carla/team_code_roach/custom_carla_container.sif',
+                        help='/path/to/custom_carla_container.sif')
 
     args, unknown = parser.parse_known_args()
     git_root = args.git_root
@@ -222,11 +238,28 @@ if __name__ == '__main__':
     # CARLA has a bug where it spams Error messages to stderr freezing the entire codebase, including restarts
     # To prevent that we redirect the std err output of CARLA servers to null.
     blackhole = open(os.devnull, 'w', encoding='utf-8')  # pylint: disable=locally-disabled, consider-using-with
+    server_outs = []
+    server_errs = []
+    client_outs = []
+    client_errs = []
+    for i in range(args.num_envs_per_node):
+      if args.debug:
+        server_outs.append(open(f"{raw_logdir}/logs/server_out_{i:03d}.txt", 'w', encoding='utf-8'))
+        server_errs.append(open(f"{raw_logdir}/logs/server_err_{i:03d}.txt", 'w', encoding='utf-8'))
+        client_outs.append(open(f"{raw_logdir}/logs/client_out_{i:03d}.txt", 'w', encoding='utf-8'))
+        client_errs.append(open(f"{raw_logdir}/logs/client_err_{i:03d}.txt", 'w', encoding='utf-8'))
+      else:
+        server_outs.append(blackhole)
+        server_errs.append(blackhole)
+        client_outs.append(blackhole)
+        client_errs.append(blackhole)
     client_ports = []
     current_port = args.start_port + 5000 * args.node_id
     skip_next_route = 'False'
 
     while training:
+      if args.debug:
+        training = False # Do not restart after a crash when debugging.
       train_process = None
       rl_ports = []
       traffic_manager_ports = []
@@ -263,41 +296,63 @@ if __name__ == '__main__':
       carla_processes = []
       leaderboard_processes = []
 
+      num_threads_per_server = 2
+
       if args.ml_cloud:
         for i in range(args.num_envs_per_node):
           print(f'Start server {i}')
           # The -nullrhi option prevents CARLA from using the GPU at all (no rendering will happen).
           # set graphicsadapter to {args.gpu_ids[i]} if actually using the gpu
-          carla_processes.append(
-              subprocess.Popen(  # pylint: disable=locally-disabled, consider-using-with
-                  f'bash {args.carla_root}/CarlaUE4.sh -carla-rpc-port={client_ports[i]} -nosound -nullrhi '
-                  f'-carla-primary-port={carla_primary_ports[i]} -carla-streaming-port={sensor_ports[i]} '
-                  f'-RenderOffScreen -graphicsadapter=0',
-                  shell=True,
-                  stderr=blackhole))
+          if args.carla_singularity:
+            carla_processes.append(
+                subprocess.Popen(  # pylint: disable=locally-disabled, consider-using-with
+                  f'singularity exec --nv --bind {args.carla_root}:{args.carla_root},{raw_logdir}:{raw_logdir} {args.carla_singularity_path} '
+                    f'bash {args.carla_root}/CarlaUE4.sh -carla-rpc-port={client_ports[i]} -nosound -nullrhi '
+                    f'-carla-primary-port={carla_primary_ports[i]} -carla-streaming-port={sensor_ports[i]} '
+                    f'-RenderOffScreen -graphicsadapter=0 -RPCThreads={num_threads_per_server} -StreamingThreads={num_threads_per_server} -SecondaryThreads={num_threads_per_server} -nothreading',
+                    shell=True, stdout=server_outs[i], stderr=server_errs[i]))
+          else:
+            carla_processes.append(
+                subprocess.Popen(  # pylint: disable=locally-disabled, consider-using-with
+                  f'LD_LIBRARY_PATH={os.environ["CONDA_PREFIX"]}/lib:$LD_LIBRARY_PATH '
+                    f'bash {args.carla_root}/CarlaUE4.sh -carla-rpc-port={client_ports[i]} -nosound -nullrhi '
+                    f'-carla-primary-port={carla_primary_ports[i]} -carla-streaming-port={sensor_ports[i]} '
+                    f'-RenderOffScreen -graphicsadapter=0 -RPCThreads={num_threads_per_server} -StreamingThreads={num_threads_per_server} -SecondaryThreads={num_threads_per_server} -nothreading',
+                    shell=True, stdout=server_outs[i], stderr=server_errs[i]))
           time.sleep(7)
 
         for i in range(args.num_envs_per_node):
           print(f'Start client {i}')
           leaderboard_processes.append(
               subprocess.Popen(  # pylint: disable=locally-disabled, consider-using-with
+                f'LD_LIBRARY_PATH={os.environ["CONDA_PREFIX"]}/lib:$LD_LIBRARY_PATH '
                   f'bash start_leaderboard.sh {git_root} {route_files[i]} {logdir} '
                   f'{i} {client_ports[i]} {traffic_manager_ports[i]} {rl_ports[i]} {args.seed} {skip_next_route} '
                   f'{args.route_repetitions}',
-                  shell=True))
+                  shell=True, stdout=client_outs[i], stderr=client_errs[i]))
           time.sleep(0.2)
       else:
         for i in range(args.num_envs_per_node):
           print(f'Start server {i}')
           # The -nullrhi option prevents CARLA from using the GPU at all (no rendering will happen).
           # set graphicsadapter to {args.gpu_ids[i]} if actually using the gpu
-          carla_processes.append(
-              subprocess.Popen(  # pylint: disable=locally-disabled, consider-using-with
-                  f'bash {args.carla_root}/CarlaUE4.sh -carla-rpc-port={client_ports[i]} -nosound -nullrhi '
-                  f'-carla-primary-port={carla_primary_ports[i]} -carla-streaming-port={sensor_ports[i]} '
-                  f'-RenderOffScreen -graphicsadapter=0',
-                  shell=True,
-                  stderr=blackhole))
+
+          if args.carla_singularity:
+            carla_processes.append(
+                subprocess.Popen(  # pylint: disable=locally-disabled, consider-using-with
+                  f'singularity exec --nv --bind {args.carla_root}:{args.carla_root},{raw_logdir}:{raw_logdir} {args.carla_singularity_path} '
+                    f'bash {args.carla_root}/CarlaUE4.sh -carla-rpc-port={client_ports[i]} -nosound -nullrhi '
+                    f'-carla-primary-port={carla_primary_ports[i]} -carla-streaming-port={sensor_ports[i]} '
+                    f'-RenderOffScreen -graphicsadapter=0 -RPCThreads={num_threads_per_server} -StreamingThreads={num_threads_per_server} -SecondaryThreads={num_threads_per_server} -nothreading',
+                    shell=True, stdout=server_outs[i], stderr=server_errs[i]))
+          else:
+            carla_processes.append(
+                subprocess.Popen(  # pylint: disable=locally-disabled, consider-using-with
+                  f'LD_LIBRARY_PATH={os.environ["CONDA_PREFIX"]}/lib:$LD_LIBRARY_PATH '
+                    f'bash {args.carla_root}/CarlaUE4.sh -carla-rpc-port={client_ports[i]} -nosound -nullrhi '
+                    f'-carla-primary-port={carla_primary_ports[i]} -carla-streaming-port={sensor_ports[i]} '
+                    f'-RenderOffScreen -graphicsadapter=0 -RPCThreads={num_threads_per_server} -StreamingThreads={num_threads_per_server} -SecondaryThreads={num_threads_per_server} -nothreading',
+                    shell=True, stdout=server_outs[i], stderr=server_errs[i]))
           time.sleep(0.02)
           print(f'Start client {i}')
           leaderboard_processes.append(
@@ -305,7 +360,7 @@ if __name__ == '__main__':
                   f'bash start_leaderboard.sh {git_root} {route_files[i]} {logdir} '
                   f'{i} {client_ports[i]} {traffic_manager_ports[i]} {rl_ports[i]} {args.seed} {skip_next_route} '
                   f'{args.route_repetitions}',
-                  shell=True))
+                  shell=True, stdout=client_outs[i], stderr=client_errs[i]))
           time.sleep(0.02)
 
       skip_next_route = 'False'  # After one route (potentially) was skipped we reset the variable
@@ -337,6 +392,13 @@ if __name__ == '__main__':
         num_processes = args.num_envs_per_node // args.num_envs_per_gpu
         num_envs_per_proc = args.num_envs_per_gpu
 
+      if args.debug:
+        train_out = open(f"{raw_logdir}/logs/train_out.txt", 'w', encoding='utf-8')
+        train_err = open(f"{raw_logdir}/logs/train_err.txt", 'w', encoding='utf-8')
+      else:
+        train_out = sys.stdout
+        train_err = sys.stderr
+
       if args.train_cpp:
         cpp_str_gpu_ids = ' '.join('--gpu_ids ' + str(x) for x in args.gpu_ids)
         num_envs = args.num_envs_per_node * args.num_nodes
@@ -348,32 +410,52 @@ if __name__ == '__main__':
             f'{args.cpp_singularity_file_path} {args.cpp_system_lib_path_1} {args.cpp_system_lib_path_2} '
             f'{cpp_str_ports} --load_file {load_file} --num_envs {num_envs} --exp_name {args.exp_name} '
             f'--tcp_store_port {tcp_store_port} {cpp_str_gpu_ids} {unknown_str}',
-            shell=True)
+            shell=True, stdout=train_out, stderr=train_err)
       else:
         train_process = subprocess.Popen(  # pylint: disable=locally-disabled, consider-using-with
             f'bash start_learner_dd_ppo.sh {git_root} {num_processes} {args.num_nodes} {args.rdzv_addr} '
             f'{args.rdzv_port} {cmdline} --ports {str_ports} --logdir {raw_logdir} --load_file {load_file} '
             f'--num_envs_per_proc {num_envs_per_proc} --tcp_store_port {tcp_store_port}',
-            shell=True)
+            shell=True, stdout=train_out, stderr=train_err)
 
       time.sleep(1)
 
       all_processes_running = True
+      ended_leaderboard = []
+      ended_carla = []
+      for idx, _ in enumerate(carla_processes):
+        ended_leaderboard.append(idx)
+        ended_carla.append(idx)
       while all_processes_running:
         time.sleep(30)
         if train_process.poll() is not None:
           all_processes_running = False
           print('Train process ended')
-        for carla_process in carla_processes:
+        for idx, carla_process in enumerate(carla_processes):
           if carla_process.poll() is not None:
             all_processes_running = False
             print('Carla server crashed')
             skip_next_route = 'True'
-        for leaderboard_process in leaderboard_processes:
+        for idx, leaderboard_process in enumerate(leaderboard_processes):
           if leaderboard_process.poll() is not None:
             all_processes_running = False
             print('Leaderboard process ended')
             skip_next_route = 'True'
+
+      for i in range(360):
+        for idx, carla_process in enumerate(carla_processes):
+          if carla_process.poll() is not None:
+            if idx in ended_carla:
+              ended_carla.remove(idx)
+              print(f"Server {idx} terminated")
+        for idx, leaderboard_process in enumerate(leaderboard_processes):
+          if leaderboard_process.poll() is not None:
+            if idx in ended_leaderboard:
+              ended_leaderboard.remove(idx)
+        time.sleep(1)
+
+      for idx in ended_leaderboard:
+        print(f"Leaderboard {idx} is hanging and did not terminate")
 
       print('Process finished:', train_process.returncode)
       if train_process.returncode == 0:

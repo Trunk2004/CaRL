@@ -741,6 +741,10 @@ def _draw_waypoints(world, routes, vertical_shift, size):
     # if CarlaDataProvider.actor_id_exists(ego_vehicle.id):
     #   CarlaDataProvider.remove_actor_by_id(ego_vehicle.id)
 
+def is_intersection_scenario(scenario_type): # TODO extend for intersection.
+  return scenario_type in ('SignalizedJunctionLeftTurn', 'OppositeVehicleRunningRedLight',
+                           'SignalizedJunctionRightTurn',)
+
 def sample_scenario(args, route_index, proc_route, scenario, scenario_type,
                     carla_map, ego_vehicle, world, scenario_counts, scenarios_one_route, global_scenario_counts):
   scenario_created = False
@@ -773,6 +777,11 @@ def sample_scenario(args, route_index, proc_route, scenario, scenario_type,
       dummy_config.route_var_name = f"ScenarioRouteNumber{sum(scenario_counts.values())}"
       # dummy_config.other_actors = [] # TODO
       scenario_instance = None
+
+      if is_intersection_scenario(scenario_type):
+        trigger_map_wp = carla_map.get_waypoint(map_point[0].location)
+        if trigger_map_wp.is_junction:
+          raise ValueError("Cannot start intersection scenario in intersection.")
 
       dummy_config.other_parameters, trigger_points = sample_additional_parameters(args, scenario_type, proc_route,
                                                                                    trigger_index, carla_map)

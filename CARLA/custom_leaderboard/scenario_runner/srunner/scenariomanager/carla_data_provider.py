@@ -17,6 +17,7 @@ import re
 import threading
 from numpy import random
 from six import iteritems
+from greenlet import greenlet
 
 import carla
 from agents.navigation.global_route_planner import GlobalRoutePlanner
@@ -590,7 +591,8 @@ class CarlaDataProvider(object):  # pylint: disable=too-many-public-methods
         if not tick:
             pass
         elif CarlaDataProvider.is_runtime_init_mode():
-            CarlaDataProvider._world.wait_for_tick()
+            gr = greenlet.getcurrent()
+            gr.parent.switch()
         elif sync_mode:
             CarlaDataProvider._world.tick()
         else:
@@ -645,7 +647,8 @@ class CarlaDataProvider(object):  # pylint: disable=too-many-public-methods
         if not tick:
             pass
         elif CarlaDataProvider.is_runtime_init_mode():
-            CarlaDataProvider._world.wait_for_tick()
+            gr = greenlet.getcurrent()
+            gr.parent.switch()
         elif CarlaDataProvider.is_sync_mode():
             CarlaDataProvider._world.tick()
         else:

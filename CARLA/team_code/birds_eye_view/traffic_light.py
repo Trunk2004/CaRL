@@ -103,7 +103,7 @@ class TrafficLightHandler:
   carla_map = None
 
   @staticmethod
-  def reset(world, carla_map, route=None):
+  def reset(world, carla_map, route=None, config=None):
     '''Needs to be called per route. Initializes TLs.'''
     TrafficLightHandler.carla_map = carla_map
 
@@ -133,15 +133,32 @@ class TrafficLightHandler:
 
     if route is not None:
       last_tl_id = None
+      last_pos = None
 
-      for i, route_wp in enumerate(route):
+      # For the special case where the first waypoint is at the entry of the intersection we need to go back
+      # by the length of the car because the cars back might still be in the last road segment.
+      if config is not None:
+        length = config.ego_extent_x + 1.0
+      else:
+        length = 3.5
+      last_wp = route[0].previous(length)
+      if len(last_wp) > 0:
+        current_route = [last_wp[0]] + route
+      else:
+        current_route = route
+
+      # The goal is to find the last waypoint of each road segment that affects the
+      for i, route_wp in enumerate(current_route):
         for idx, tl_actor in enumerate(TrafficLightHandler.list_tl_actor):
-          if tl_actor.id == last_tl_id:
+          # The distance check is to avoid the case where there is only 1 traffic light in a cyclic route.
+          if tl_actor.id == last_tl_id and last_pos.distance(route_wp.transform.location) < 10.0:
             if does_tf_affect_ego(route_wp, TrafficLightHandler.list_stopline_wps[idx]):
               TrafficLightHandler.tl_ids_affecting_ego[-1][1] = i  # Update index to get the latest.
+              last_pos = route_wp.transform.location
             continue
           if does_tf_affect_ego(route_wp, TrafficLightHandler.list_stopline_wps[idx]):
             last_tl_id = tl_actor.id
+            last_pos = route_wp.transform.location
             TrafficLightHandler.tl_ids_affecting_ego.append([tl_actor.id, i])
 
   @staticmethod

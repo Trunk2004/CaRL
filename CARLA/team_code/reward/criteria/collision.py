@@ -52,6 +52,8 @@ class Collision():
       self.last_id = None
 
     info = self.collision_info
+    if info is not None:
+      print(f'Collision with {info["other_actor_type_id"]}')
     self.collision_info = None
 
     return info
@@ -61,7 +63,7 @@ class Collision():
     self = weakself()
     if not self:
       return
-    # Ignore the current one if it's' the same id as before
+    # Ignore the current one if it is the same id as before
     if self.last_id == event.other_actor.id:
       return
     # Ignore if it's too close to a previous collision (avoid micro collisions)
@@ -86,7 +88,7 @@ class Collision():
     else:
       collision_type = -1
 
-    # write to info, all quantities in in world coordinate
+    # write to info, all quantities in world coordinate
     event_loc = event.transform.location
     event_rot = event.transform.rotation
     oa_loc = event.other_actor.get_transform().location

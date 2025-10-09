@@ -102,8 +102,9 @@ class RouteScenario(BasicScenario):
         self.build_scenarios(ego_vehicle, debug=debug_mode > 0)
 
         # Set runtime init mode. Do this after the first set of scenarios has been initialized!
-        # Deactivated because we do not use threading anymore.
-        # CarlaDataProvider.set_runtime_init_mode(True)
+        # This flag is important because the scenario setups need to wait for cars etc. to spawn but should not
+        # tick the simulator itself to avoid multiple ticks per agent action during runtime.
+        CarlaDataProvider.set_runtime_init_mode(True)
 
     def _get_route(self, config):
         """

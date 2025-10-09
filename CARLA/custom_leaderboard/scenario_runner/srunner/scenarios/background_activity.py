@@ -610,7 +610,11 @@ class BackgroundBehavior(AtomicBehavior):
         """For a junction waypoint, returns a waypoint outside of it that entrys into its lane"""
         # Exit the junction
         while self._is_junction(entry_wp):
-            entry_wps = entry_wp.previous(0.2)
+            try:
+                entry_wps = entry_wp.previous(0.2) # This sometimes causes runtime errors. Stop in that case.
+            except RuntimeError as e:
+                print(f"Runtime Error: {e}")
+                return None
             if len(entry_wps) == 0:
                 return None  # Stop when there's no prev
             entry_wp = entry_wps[0]

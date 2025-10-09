@@ -128,7 +128,7 @@ class ObsManager(ObsManagerBase):
       for route_point in route:
         self.route_map.append(self.world_map.get_waypoint(route_point[0].location, project_to_road=True))
 
-    TrafficLightHandler.reset(self.world, self.world_map, self.route_map)
+    TrafficLightHandler.reset(self.world, self.world_map, self.route_map, self.config)
     self.total_num_route_points = len(route)
 
   @staticmethod

@@ -480,67 +480,70 @@ class PPOPolicy(nn.Module):
                       upscale_factor=1):
     font = cv2.FONT_HERSHEY_SIMPLEX
     obs_rendered_upscaled = obs_rendered.repeat(upscale_factor, axis=0).repeat(upscale_factor, axis=1)
-    if self.config.distribution in ('beta', 'beta_uni_mix'):
-      device = distribution.concentration1.device
-      granularity = torch.arange(start=0.0, end=1.0, step=0.001 / upscale_factor).unsqueeze(1)
-      granularity = torch.ones((granularity.shape[0], self.action_space.shape[0])) * granularity
-      granularity = granularity.to(device)
-      granularity_cpu = deepcopy(granularity).cpu()
-    elif self.config.distribution == 'normal':
-      device = distribution.mean.device
-      granularity_cpu = torch.arange(start=0.0, end=1.0, step=0.001 / upscale_factor).unsqueeze(1)
-      granularity = torch.arange(start=-1.0, end=1.0, step=0.002 / upscale_factor).unsqueeze(1)
-      granularity = torch.ones((granularity.shape[0], self.action_space.shape[0])) * granularity
-      granularity = granularity.to(device)
-
-    if self.config.distribution == 'beta_uni_mix':
-      uniform_pdf = torch.ones_like(granularity, device=device, requires_grad=False)
-      distribution = (self.action_dist.beta_perc * distribution.log_prob(granularity).exp() +
-                      self.action_dist.uniform_perc * uniform_pdf)
-      distribution = distribution.cpu().numpy()
-    else:
-      distribution = distribution.log_prob(granularity)
-      distribution = torch.exp(distribution).cpu().numpy()
-    # Make a random plot...
     width, height, _ = obs_rendered_upscaled.shape
 
-    action_type = ['Steering', 'Brake | Throttle']
-    action_plots = []
-    plot_height = int(round(height / (self.action_space.shape[0] + 1), 0))
-    actions = [control.steer, control.throttle - control.brake]
-    y_max = 12.0  # Continuous PDFs can be arbitrary high. We clipp after 25.
+    if distribution is not None:
+      if self.config.distribution in ('beta', 'beta_uni_mix'):
+        device = distribution.concentration1.device
+        granularity = torch.arange(start=0.0, end=1.0, step=0.001 / upscale_factor).unsqueeze(1)
+        granularity = torch.ones((granularity.shape[0], self.action_space.shape[0])) * granularity
+        granularity = granularity.to(device)
+        granularity_cpu = deepcopy(granularity).cpu()
+      elif self.config.distribution == 'normal':
+        device = distribution.mean.device
+        granularity_cpu = torch.arange(start=0.0, end=1.0, step=0.001 / upscale_factor).unsqueeze(1)
+        granularity = torch.arange(start=-1.0, end=1.0, step=0.002 / upscale_factor).unsqueeze(1)
+        granularity = torch.ones((granularity.shape[0], self.action_space.shape[0])) * granularity
+        granularity = granularity.to(device)
 
-    for i in range(self.action_space.shape[0]):
-      action_plot = np.zeros((plot_height, width, 3), dtype=np.uint8)
-      cv2.line(action_plot, (width // 2, 0), (width // 2, (plot_height - 1)), (0, 255, 0), thickness=2 * upscale_factor)
-      cv2.line(action_plot, (0, 0), (0, (plot_height - 1)), (0, 255, 0), thickness=2 * upscale_factor)
-      cv2.line(action_plot, (width - 1, 0), (width - 1, (plot_height - 1)), (0, 255, 0), thickness=2 * upscale_factor)
+      if self.config.distribution == 'beta_uni_mix':
+        uniform_pdf = torch.ones_like(granularity, device=device, requires_grad=False)
+        distribution = (self.action_dist.beta_perc * distribution.log_prob(granularity).exp() +
+                        self.action_dist.uniform_perc * uniform_pdf)
+        distribution = distribution.cpu().numpy()
+      else:
+        distribution = distribution.log_prob(granularity)
+        distribution = torch.exp(distribution).cpu().numpy()
 
-      # Plot actions:
-      control_pixel = int(((actions[i] + 1.0) / 2.0) * (width - 1))
-      cv2.line(action_plot, (control_pixel, 0), (control_pixel, (plot_height - 1)), (255, 255, 0),
-               thickness=2 * upscale_factor)
+      action_type = ['Steering', 'Brake | Throttle']
+      action_plots = []
+      plot_height = int(round(height / (self.action_space.shape[0] + 1), 0))
+      actions = [control.steer, control.throttle - control.brake]
+      y_max = 12.0  # Continuous PDFs can be arbitrary high. We clipp after 25.
 
-      granularity_numpy = granularity_cpu.numpy()
-      xs = (granularity_numpy[:, 0] * width).astype(np.int32)
-      y_pixels = distribution[:, i] / y_max * (plot_height - 1)
-      clipped_pixels = np.clip(y_pixels, a_min=None, a_max=int(plot_height - 1)).astype(np.int32)
-      ys = (plot_height - 1) - clipped_pixels
+      for i in range(self.action_space.shape[0]):
+        action_plot = np.zeros((plot_height, width, 3), dtype=np.uint8)
+        cv2.line(action_plot, (width // 2, 0), (width // 2, (plot_height - 1)), (0, 255, 0), thickness=2 * upscale_factor)
+        cv2.line(action_plot, (0, 0), (0, (plot_height - 1)), (0, 255, 0), thickness=2 * upscale_factor)
+        cv2.line(action_plot, (width - 1, 0), (width - 1, (plot_height - 1)), (0, 255, 0), thickness=2 * upscale_factor)
 
-      points = np.stack([xs, ys], axis=1).astype(np.int32)
-      action_plot = cv2.polylines(action_plot, [points],
-                                  isClosed=False,
-                                  color=(255, 255, 0),
-                                  lineType=cv2.LINE_AA,
-                                  thickness=2 * upscale_factor)
+        # Plot actions:
+        control_pixel = int(((actions[i] + 1.0) / 2.0) * (width - 1))
+        cv2.line(action_plot, (control_pixel, 0), (control_pixel, (plot_height - 1)), (255, 255, 0),
+                 thickness=2 * upscale_factor)
 
-      cv2.putText(action_plot, action_type[i], (5 * upscale_factor, 10 * upscale_factor), font, 0.33 * upscale_factor,
-                  (255, 255, 255), 1 * upscale_factor, cv2.LINE_AA)
-      action_plots.append(action_plot)
+        granularity_numpy = granularity_cpu.numpy()
+        xs = (granularity_numpy[:, 0] * width).astype(np.int32)
+        y_pixels = distribution[:, i] / y_max * (plot_height - 1)
+        clipped_pixels = np.clip(y_pixels, a_min=None, a_max=int(plot_height - 1)).astype(np.int32)
+        ys = (plot_height - 1) - clipped_pixels
 
-    action_plots = np.concatenate(action_plots, axis=0)
-    measure_plot_height = height - action_plots.shape[0]
-    measurement_plot = np.zeros((measure_plot_height, width, 3), dtype=np.uint8)
+        points = np.stack([xs, ys], axis=1).astype(np.int32)
+        action_plot = cv2.polylines(action_plot, [points],
+                                    isClosed=False,
+                                    color=(255, 255, 0),
+                                    lineType=cv2.LINE_AA,
+                                    thickness=2 * upscale_factor)
+
+        cv2.putText(action_plot, action_type[i], (5 * upscale_factor, 10 * upscale_factor), font, 0.33 * upscale_factor,
+                    (255, 255, 255), 1 * upscale_factor, cv2.LINE_AA)
+        action_plots.append(action_plot)
+
+      action_plots = np.concatenate(action_plots, axis=0)
+      measure_plot_height = height - action_plots.shape[0]
+      measurement_plot = np.zeros((measure_plot_height, width, 3), dtype=np.uint8)
+    else:
+      measurement_plot = np.zeros((height, width, 3), dtype=np.uint8)
 
     y_point = 10 * upscale_factor
     cv2.putText(obs_rendered_upscaled, f'Last steer: {measurements[0]:.2f}', (0, y_point), font, 0.33 * upscale_factor,
@@ -583,8 +586,10 @@ class PPOPolicy(nn.Module):
     cv2.putText(measurement_plot, f'Brake:{control.brake:.2f}', (130 * upscale_factor, y_point), font,
                 0.33 * upscale_factor, (255, 255, 255), 1 * upscale_factor, cv2.LINE_AA)
     y_point += 15 * upscale_factor
-    cv2.putText(measurement_plot, f'Value:{value.item():.2f}', (130 * upscale_factor, y_point), font,
-                0.33 * upscale_factor, (255, 255, 255), 1 * upscale_factor, cv2.LINE_AA)
+
+    if value is not None:
+      cv2.putText(measurement_plot, f'Value:{value.item():.2f}', (130 * upscale_factor, y_point), font,
+                  0.33 * upscale_factor, (255, 255, 255), 1 * upscale_factor, cv2.LINE_AA)
 
     if self.config.use_value_measurements:
       y_point = 10 * upscale_factor
@@ -614,6 +619,10 @@ class PPOPolicy(nn.Module):
       cv2.putText(measurement_plot, f'integ: {measurements[11]:.2f}', (130 * upscale_factor, y_point), font,
                   0.33 * upscale_factor, (255, 255, 255), 1 * upscale_factor, cv2.LINE_AA)
 
-    action_plots = np.concatenate((measurement_plot, action_plots), axis=0)
+    if distribution is not None:
+      action_plots = np.concatenate((measurement_plot, action_plots), axis=0)
+      return np.concatenate((obs_rendered_upscaled, action_plots), axis=1)
 
-    return np.concatenate((obs_rendered_upscaled, action_plots), axis=1)
+    else:
+      return np.concatenate((obs_rendered_upscaled, measurement_plot), axis=1)
+

@@ -68,7 +68,7 @@ class RunRedLight():
           # Is the vehicle traversing the stop line?
           crossed = self._is_vehicle_crossing_line((tail_close_pt, tail_far_pt), (stop_left_loc, stop_right_loc))
 
-          if crossed and ev_speed > 0.0000001:
+          if crossed and ev_speed > 0.001:
             tl_loc = traffic_light.get_location()
             # loc_in_ev = trans_utils.loc_global_to_ref(tl_loc, ev_tra)
             self._last_red_light_id = traffic_light.id

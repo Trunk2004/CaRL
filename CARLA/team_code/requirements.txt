@@ -1,6 +1,7 @@
 carla==0.9.15
 dictor==0.1.12
 ephem==4.1.5
+greenlet==3.2.4
 gymnasium==0.29.1
 h5py==3.7.0
 jsonpickle==3.0.3
