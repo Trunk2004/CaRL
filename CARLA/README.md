@@ -10,6 +10,22 @@ In general, we recommend reading the appendix of [the paper](https://arxiv.org/a
 * [team_code](team_code) contains the training and evaluation files.
 * [tools](tools) contains various scripts for generating training routes or aggregating results.
 
+## News
+
+* [09/Oct/2025] Released the CaRL version 1.1 model. See [release notes](docs/ReleaseNotes_1_1.md).
+* [10/Aug/2025] Initial code release v1.0 finished
+
+## Performance on longest6v2
+
+| **Method** | **Type** | **DS ↑** | **RC ↑** | **Ped ↓** | **Veh ↓** | **MS ↓** | **Time ↓** |
+|-----------|-----------|-------|-----------|------------|--------|--------|-------------|
+| PDM-Lite | Rule | **73** | **100** | **0.00** | **0.18** | **7.67** | **18** |
+| **—** | **—** | **—** | **—** | **—** | **—** | **—** | **—** |
+| PlanT | IL | 62 | **96** | 0.07 | 0.43 | 3.18 | 18 |
+| Think2Drive | RL | 7 | 39 | 0.97 | 2.55 | 18.05 | **6** |
+| Roach | RL | 22 | 77 | 0.45 | 2.42 | 7.12 | 7 |
+| CaRL v1.0 | RL | 64 | 82 | **0.01** | 0.36 | 1.71 | 8 |
+| CaRL v1.1 | RL | **73** | 83 | **0.01** | **0.17** | **1.67** | 8 |
 
 ## Contents
 
