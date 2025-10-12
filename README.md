@@ -17,12 +17,11 @@ The original code in this repository is provided under the Civil-M license, whic
 If you find the repo useful, please consider giving it a star &#127775;.
 To cite the paper please use the following bibtex:
 ```BibTeX
-@article{Jaeger2025ArXiv, 
-        author = {Bernhard Jaeger and Daniel Dauner and Jens Beißwenger and Simon Gerstenecker and Kashyap Chitta and Andreas Geiger}, 
-        title = {CaRL: Learning Scalable Planning Policies with Simple Rewards}, 
-        year = {2025}, 
-        journal = {arXiv.org}, 
-        volume = {2504.17838}, 
+@InProceedings{Jaeger2025CoRL, 
+	author = {Bernhard Jaeger and Daniel Dauner and Jens Beißwenger and Simon Gerstenecker and Kashyap Chitta and Andreas Geiger}, 
+	title = {CaRL: Learning Scalable Planning Policies with Simple Rewards}, 
+	booktitle = {Proc. of the Conf. on Robot Learning (CoRL)}, 
+	year = {2025}, 
 }
 ```
 
