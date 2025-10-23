@@ -66,13 +66,13 @@ class EnvAgent(autonomous_agent.AutonomousAgent):
     self.num_send = 0
 
     # Environment variables
-    self.save_path = os.environ.get('SAVE_PATH')
+    self.save_path = os.environ.get('SAVE_PATH', None)
     self.record_infractions = int(os.environ.get('RECORD', 0)) == 1
     self.infraction_counter = 0
-    self.png_folder = pathlib.Path(self.save_path) / str(carla_port)
-    self.png_folder.mkdir(parents=True, exist_ok=True)
 
     if self.save_path is not None and self.record_infractions:
+      self.png_folder = pathlib.Path(self.save_path) / str(carla_port)
+      self.png_folder.mkdir(parents=True, exist_ok=True)
       self.observation_space = spaces.Dict({
         'bev_semantics':
           spaces.Box(0,
